@@ -21,6 +21,7 @@ package configparser
 
 import (
 	"github.com/BurntSushi/toml"
+	"github.com/sirupsen/logrus"
 )
 
 type TomlConfig struct {
@@ -42,7 +43,7 @@ func ReadConfig(conf string) TomlConfig {
 	var tconfig TomlConfig
 	_, err := toml.DecodeFile(conf, &tconfig)
 	if err != nil {
-		panic(err)
+		logrus.Fatal("Could not parse config file '" + conf + "'")
 	}
 
 	return tconfig

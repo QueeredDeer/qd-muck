@@ -21,23 +21,39 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"os"
+	"strconv"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/QueeredDeer/qd-muck/internal/configparser"
 )
 
+func ConfigureLogging(f *os.File) {
+	logrus.SetOutput(f)
+}
+
 func main() {
-	configFilePtr := flag.String("conf", "config.toml", "Server configuration file (TOML)")
+	configFilePtr := flag.String("conf", "config.toml",
+		"Server configuration file (TOML)")
 
 	flag.Parse()
 
 	configSettings := configparser.ReadConfig(*configFilePtr)
 
-	fmt.Println("Hello from the QD MUCK server!")
+	logFile := configSettings.Logging.LogFile
+	file, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		logrus.Fatal("Could not open log file '" + logFile + "'")
+	}
+	defer file.Close()
 
-	fmt.Println("CertFile:", configSettings.Server.CertFile)
-	fmt.Println("Private Key:", configSettings.Server.PrivKeyFile)
-	fmt.Println("SSL port:", configSettings.Server.SslPort)
+	ConfigureLogging(file)
 
-	fmt.Println("Log file:", configSettings.Logging.LogFile)
+	logrus.Info("Hello from the QD MUCK server!")
+
+	logrus.Info("CertFile: " + configSettings.Server.CertFile)
+	logrus.Info("Private Key: " + configSettings.Server.PrivKeyFile)
+	logrus.Info("SSL port: " + strconv.Itoa(configSettings.Server.SslPort))
+	logrus.Info("Log file: " + configSettings.Logging.LogFile)
 }
