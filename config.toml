@@ -1,0 +1,7 @@
+[Server]
+certificate_file = "server.crt"
+private_key_file = "server.key"
+ssl_port = 4443
+
+[Logging]
+log_file = "log.server"

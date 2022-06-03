@@ -17,27 +17,33 @@
 	with QD MUCK. If not, see <https://www.gnu.org/licenses/>.
 */
 
-package main
+package configparser
 
 import (
-	"flag"
-	"fmt"
-
-	"github.com/QueeredDeer/qd-muck/internal/configparser"
+	"github.com/BurntSushi/toml"
 )
 
-func main() {
-	configFilePtr := flag.String("conf", "config.toml", "Server configuration file (TOML)")
+type TomlConfig struct {
+	Server  ServerSettings `toml:"Server"`
+	Logging LogSettings    `toml:"Logging"`
+}
 
-	flag.Parse()
+type ServerSettings struct {
+	CertFile    string `toml:"certificate_file"`
+	PrivKeyFile string `toml:"private_key_file"`
+	SslPort     int    `toml:"ssl_port"`
+}
 
-	configSettings := configparser.ReadConfig(*configFilePtr)
+type LogSettings struct {
+	LogFile string `toml:"log_file"`
+}
 
-	fmt.Println("Hello from the QD MUCK server!")
+func ReadConfig(conf string) TomlConfig {
+	var tconfig TomlConfig
+	_, err := toml.DecodeFile(conf, &tconfig)
+	if err != nil {
+		panic(err)
+	}
 
-	fmt.Println("CertFile:", configSettings.Server.CertFile)
-	fmt.Println("Private Key:", configSettings.Server.PrivKeyFile)
-	fmt.Println("SSL port:", configSettings.Server.SslPort)
-
-	fmt.Println("Log file:", configSettings.Logging.LogFile)
+	return tconfig
 }
