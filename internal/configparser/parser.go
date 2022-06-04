@@ -39,6 +39,11 @@ type LogSettings struct {
 	LogFile string `toml:"log_file"`
 }
 
+type LoginSettings struct {
+	LoginAttempts int `toml:"login_attempts"`
+	LockoutCount  int `toml:"lockout_count"`
+}
+
 func ReadConfig(conf string) TomlConfig {
 	var tconfig TomlConfig
 	_, err := toml.DecodeFile(conf, &tconfig)
