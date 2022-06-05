@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"errors"
 	"net"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -32,27 +33,47 @@ import (
 const invalidUser string = "Invalid login attempt"
 const invalidPass string = "Invalid username or password"
 
+type userProfile struct {
+	Name         string
+	PasswordHash string
+	LoginStrikes int
+	TimeoutSet   bool
+	Timeout      time.Time
+}
+
+func (profile *userProfile) clearStrikes() {
+	// FIXME: write these to db instead
+	profile.LoginStrikes = 0
+	profile.TimeoutSet = false
+	profile.Timeout = time.Unix(0, 0)
+}
+
 func listenLogin(reader *bufio.Reader) (string, string) {
 	return "", ""
 }
 
-func checkUser(user string) error {
-	return errors.New("checkUser unimplemented")
+func checkUser(user string) (*userProfile, error) {
+	return &userProfile{}, errors.New("checkUser unimplemented")
 }
 
 func checkPassword(user string, password string) error {
 	return errors.New("checkPassword unimplemented")
 }
 
+func timeoutUsers(strikes *map[string]int, lcount int) {
+	// FIXME: implement
+}
+
 func validateLogin(reader *bufio.Reader, conn net.Conn, lsettings *configparser.LoginSettings) (string, bool) {
 	user := ""
 	attempts := 0
+	passwordStrikes := make(map[string]int)
 
 	for attempts < lsettings.LoginAttempts {
 		user, password := listenLogin(reader)
 
 		// check user exists in DB, user is not currently logged in, and not timed out
-		uerr := checkUser(user)
+		uprofile, uerr := checkUser(user)
 		if uerr != nil {
 			attempts++
 			conn.Write([]byte(invalidUser))
@@ -68,6 +89,7 @@ func validateLogin(reader *bufio.Reader, conn net.Conn, lsettings *configparser.
 		perr := checkPassword(user, password)
 		if perr == nil {
 			// password validated, safe to login
+			uprofile.clearStrikes()
 			logrus.WithFields(logrus.Fields{
 				"ip":     conn.RemoteAddr().String(),
 				"player": user,
@@ -77,6 +99,8 @@ func validateLogin(reader *bufio.Reader, conn net.Conn, lsettings *configparser.
 
 		// default: bad password, log and increment
 		attempts++
+		strikes := passwordStrikes[uprofile.Name]
+		passwordStrikes[uprofile.Name] = strikes + 1
 		conn.Write([]byte(invalidPass))
 		logrus.WithFields(logrus.Fields{
 			"ip":     conn.RemoteAddr().String(),
@@ -85,6 +109,7 @@ func validateLogin(reader *bufio.Reader, conn net.Conn, lsettings *configparser.
 		}).Warn("Invalid login attempt")
 	}
 
+	timeoutUsers(&passwordStrikes, lsettings.LockoutCount)
 	return user, false
 }
 
