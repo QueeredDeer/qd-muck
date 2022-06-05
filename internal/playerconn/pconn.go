@@ -23,6 +23,8 @@ import (
 	"bufio"
 	"errors"
 	"net"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -48,15 +50,45 @@ func (profile *userProfile) clearStrikes() {
 	profile.Timeout = time.Unix(0, 0)
 }
 
-func listenLogin(reader *bufio.Reader) (string, string) {
+func listenLogin(conn net.Conn) (string, string) {
+	reader := bufio.NewReader(conn)
+
+	re := regexp.MustCompile(`connect\s+(?P<user>\S+)\s+(?P<password>\S.*)`)
+	uindex := re.SubexpIndex("user")
+	pindex := re.SubexpIndex("password")
+
+	// TODO: add timeout to this loop?
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			conn.Write([]byte(err.Error()))
+			continue
+		}
+
+		cmd := strings.TrimSpace(string(line))
+
+		if !re.MatchString(cmd) {
+			conn.Write([]byte("Unrecognized command format"))
+			continue
+		}
+
+		matches := re.FindStringSubmatch(cmd)
+		user := matches[uindex]
+		pass := matches[pindex]
+
+		return user, pass
+	}
+
 	return "", ""
 }
 
 func checkUser(user string) (*userProfile, error) {
+	// check user exists in DB, user is not currently logged in, and not timed out
 	return &userProfile{}, errors.New("checkUser unimplemented")
 }
 
-func checkPassword(user string, password string) error {
+func checkPassword(uprofile *userProfile, password string) error {
 	return errors.New("checkPassword unimplemented")
 }
 
@@ -64,15 +96,14 @@ func timeoutUsers(strikes *map[string]int, lcount int) {
 	// FIXME: implement
 }
 
-func validateLogin(reader *bufio.Reader, conn net.Conn, lsettings *configparser.LoginSettings) (string, bool) {
+func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings) (string, bool) {
 	user := ""
 	attempts := 0
 	passwordStrikes := make(map[string]int)
 
 	for attempts < lsettings.LoginAttempts {
-		user, password := listenLogin(reader)
+		user, password := listenLogin(conn)
 
-		// check user exists in DB, user is not currently logged in, and not timed out
 		uprofile, uerr := checkUser(user)
 		if uerr != nil {
 			attempts++
@@ -86,7 +117,7 @@ func validateLogin(reader *bufio.Reader, conn net.Conn, lsettings *configparser.
 		}
 
 		// validate password
-		perr := checkPassword(user, password)
+		perr := checkPassword(uprofile, password)
 		if perr == nil {
 			// password validated, safe to login
 			uprofile.clearStrikes()
@@ -127,10 +158,9 @@ func listenInput(player string, conn net.Conn) {
 }
 
 func Launch(conn net.Conn, lsettings *configparser.LoginSettings) {
-	reader := bufio.NewReader(conn)
 	defer conn.Close()
 
-	player, ok := validateLogin(reader, conn, lsettings)
+	player, ok := validateLogin(conn, lsettings)
 	if !ok {
 		conn.Write([]byte("Closing connection..."))
 		return
