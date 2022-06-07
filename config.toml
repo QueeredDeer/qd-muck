@@ -5,3 +5,7 @@ ssl_port = 4443
 
 [Logging]
 log_file = "log.server"
+
+[Login]
+login_attempts = 5
+lockout_count = 5

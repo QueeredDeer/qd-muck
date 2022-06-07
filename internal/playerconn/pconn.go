@@ -35,6 +35,8 @@ import (
 const invalidUser string = "Invalid login attempt"
 const invalidPass string = "Invalid username or password"
 
+var connParser *regexp.Regexp = regexp.MustCompile(`connect\s+(?P<user>\S+)\s+(?P<password>\S.*)`)
+
 type userProfile struct {
 	Name         string
 	PasswordHash string
@@ -53,9 +55,8 @@ func (profile *userProfile) clearStrikes() {
 func listenLogin(conn net.Conn) (string, string) {
 	reader := bufio.NewReader(conn)
 
-	re := regexp.MustCompile(`connect\s+(?P<user>\S+)\s+(?P<password>\S.*)`)
-	uindex := re.SubexpIndex("user")
-	pindex := re.SubexpIndex("password")
+	uindex := connParser.SubexpIndex("user")
+	pindex := connParser.SubexpIndex("password")
 
 	// TODO: add timeout to this loop?
 
@@ -68,12 +69,12 @@ func listenLogin(conn net.Conn) (string, string) {
 
 		cmd := strings.TrimSpace(string(line))
 
-		if !re.MatchString(cmd) {
+		if !connParser.MatchString(cmd) {
 			conn.Write([]byte("Unrecognized command format"))
 			continue
 		}
 
-		matches := re.FindStringSubmatch(cmd)
+		matches := connParser.FindStringSubmatch(cmd)
 		user := matches[uindex]
 		pass := matches[pindex]
 

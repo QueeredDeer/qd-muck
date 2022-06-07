@@ -27,6 +27,19 @@ import (
 type TomlConfig struct {
 	Server  ServerSettings `toml:"Server"`
 	Logging LogSettings    `toml:"Logging"`
+	Login   LoginSettings  `toml:"Login"`
+}
+
+func (t *TomlConfig) LogConfiguration() {
+	t.Server.Log()
+	t.Logging.Log()
+	t.Login.Log()
+}
+
+func (t *TomlConfig) setDefaults() {
+	t.Server.setDefaults()
+	t.Logging.setDefaults()
+	t.Login.setDefaults()
 }
 
 type ServerSettings struct {
@@ -35,8 +48,30 @@ type ServerSettings struct {
 	SslPort     int    `toml:"ssl_port"`
 }
 
+func (s *ServerSettings) Log() {
+	logrus.WithFields(logrus.Fields{
+		"certificate_file": s.CertFile,
+		"private_key_file": s.PrivKeyFile,
+		"ssl_port":         s.SslPort,
+	}).Info("Server settings")
+}
+
+func (s *ServerSettings) setDefaults() {
+	s.CertFile = ""
+	s.PrivKeyFile = ""
+	s.SslPort = 443
+}
+
 type LogSettings struct {
 	LogFile string `toml:"log_file"`
+}
+
+func (l *LogSettings) Log() {
+	// nothing for now, don't need to log name of log file in log file itself...
+}
+
+func (l *LogSettings) setDefaults() {
+	l.LogFile = "log.server"
 }
 
 type LoginSettings struct {
@@ -44,8 +79,21 @@ type LoginSettings struct {
 	LockoutCount  int `toml:"lockout_count"`
 }
 
+func (l *LoginSettings) Log() {
+	logrus.WithFields(logrus.Fields{
+		"login_attempts": l.LoginAttempts,
+		"lockout_count":  l.LockoutCount,
+	}).Info("Login settings")
+}
+
+func (l *LoginSettings) setDefaults() {
+	l.LoginAttempts = 5
+	l.LockoutCount = 5
+}
+
 func ReadConfig(conf string) TomlConfig {
 	var tconfig TomlConfig
+	tconfig.setDefaults()
 	_, err := toml.DecodeFile(conf, &tconfig)
 	if err != nil {
 		logrus.Fatal("Could not parse config file '" + conf + "'")

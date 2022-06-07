@@ -22,7 +22,6 @@ package main
 import (
 	"flag"
 	"os"
-	"strconv"
 
 	"github.com/sirupsen/logrus"
 
@@ -49,11 +48,7 @@ func main() {
 	defer file.Close()
 
 	ConfigureLogging(file)
+	configSettings.LogConfiguration()
 
 	logrus.Info("Hello from the QD MUCK server!")
-
-	logrus.Info("CertFile: " + configSettings.Server.CertFile)
-	logrus.Info("Private Key: " + configSettings.Server.PrivKeyFile)
-	logrus.Info("SSL port: " + strconv.Itoa(configSettings.Server.SslPort))
-	logrus.Info("Log file: " + configSettings.Logging.LogFile)
 }
