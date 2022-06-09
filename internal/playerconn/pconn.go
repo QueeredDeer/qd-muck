@@ -36,6 +36,8 @@ const invalidUser string = "Invalid login attempt"
 const invalidPass string = "Invalid username or password"
 
 var connParser *regexp.Regexp = regexp.MustCompile(`connect\s+(?P<user>\S+)\s+(?P<password>\S.*)`)
+var uindex int = connParser.SubexpIndex("user")
+var pindex int = connParser.SubexpIndex("password")
 
 type userProfile struct {
 	Name         string
@@ -52,14 +54,24 @@ func (profile *userProfile) clearStrikes() {
 	profile.Timeout = time.Unix(0, 0)
 }
 
+func parseConnect(line string) (string, string, bool) {
+	cmd := strings.TrimSpace(string(line))
+
+	if !connParser.MatchString(cmd) {
+		return "", "", false
+	}
+
+	matches := connParser.FindStringSubmatch(cmd)
+	user := matches[uindex]
+	pass := matches[pindex]
+
+	return user, pass, true
+}
+
 func listenLogin(conn net.Conn) (string, string) {
 	reader := bufio.NewReader(conn)
 
-	uindex := connParser.SubexpIndex("user")
-	pindex := connParser.SubexpIndex("password")
-
 	// TODO: add timeout to this loop?
-
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -67,20 +79,16 @@ func listenLogin(conn net.Conn) (string, string) {
 			continue
 		}
 
-		cmd := strings.TrimSpace(string(line))
-
-		if !connParser.MatchString(cmd) {
+		user, pass, ok := parseConnect(line)
+		if !ok {
 			conn.Write([]byte("Unrecognized command format"))
 			continue
 		}
 
-		matches := connParser.FindStringSubmatch(cmd)
-		user := matches[uindex]
-		pass := matches[pindex]
-
 		return user, pass
 	}
 
+	// unreachable
 	return "", ""
 }
 
