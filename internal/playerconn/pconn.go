@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/QueeredDeer/qd-muck/internal/configparser"
 )
@@ -41,16 +42,14 @@ var pindex int = connParser.SubexpIndex("password")
 
 type userProfile struct {
 	Name         string
-	PasswordHash string
+	PasswordHash []byte
 	LoginStrikes int
-	TimeoutSet   bool
 	Timeout      time.Time
 }
 
 func (profile *userProfile) clearStrikes() {
 	// FIXME: write these to db instead
 	profile.LoginStrikes = 0
-	profile.TimeoutSet = false
 	profile.Timeout = time.Unix(0, 0)
 }
 
@@ -92,13 +91,37 @@ func listenLogin(conn net.Conn) (string, string) {
 	return "", ""
 }
 
+func userOffline(user string) bool {
+	// FIXME: implement
+	return false
+}
+
+func loadProfile(user string) (*userProfile, error) {
+	// FIXME: implement
+	return &userProfile{}, errors.New("Profile loading not implemented")
+}
+
 func checkUser(user string) (*userProfile, error) {
 	// check user exists in DB, user is not currently logged in, and not timed out
-	return &userProfile{}, errors.New("checkUser unimplemented")
+	offline := userOffline(user)
+	if !offline {
+		return &userProfile{}, errors.New("User '" + user + "' already logged in")
+	}
+
+	profile, err := loadProfile(user)
+	if err != nil {
+		return profile, err
+	}
+
+	if time.Now().Before(profile.Timeout) {
+		return &userProfile{}, errors.New("User '" + user + "' has login timeout")
+	}
+
+	return profile, nil
 }
 
 func checkPassword(uprofile *userProfile, password string) error {
-	return errors.New("checkPassword unimplemented")
+	return bcrypt.CompareHashAndPassword(uprofile.PasswordHash, []byte(password))
 }
 
 func timeoutUsers(strikes *map[string]int, lcount int) {
@@ -121,7 +144,7 @@ func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings) (string
 				"ip":     conn.RemoteAddr().String(),
 				"player": user,
 				"error":  uerr.Error(),
-			}).Warn("Invalid login attempt")
+			}).Warn("Invalid username in login attempt")
 			continue
 		}
 
@@ -146,7 +169,7 @@ func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings) (string
 			"ip":     conn.RemoteAddr().String(),
 			"player": user,
 			"error":  perr.Error(),
-		}).Warn("Invalid login attempt")
+		}).Warn("Invalid password in login attempt")
 	}
 
 	timeoutUsers(&passwordStrikes, lsettings.LockoutCount)
