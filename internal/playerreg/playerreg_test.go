@@ -20,7 +20,7 @@ func TestQueryEmptyPlayerRegistry(t *testing.T) {
 	resp := <-cb.Callback
 	if resp {
 		// found un-added player
-		t.Errorf("Empty registry reported player present")
+		t.Errorf("empty registry reported player present")
 	}
 
 	reg.Done <- 1
@@ -45,7 +45,7 @@ func TestAddPlayerRegistry(t *testing.T) {
 	resp := <-cb.Callback
 	if !resp {
 		// didn't find added player
-		t.Errorf("Could not find expected player '" + name + "'")
+		t.Errorf("could not find expected player '" + name + "'")
 	}
 
 	reg.Done <- 1
@@ -70,7 +70,7 @@ func TestQueryNameVariety(t *testing.T) {
 	resp := <-cb.Callback
 	if !resp {
 		// didn't find added player
-		t.Errorf("Could not find expected player '" + name + "'")
+		t.Errorf("could not find expected player '" + name + "'")
 	}
 
 	reg.Done <- 1
@@ -98,7 +98,7 @@ func TestAddExistingPlayer(t *testing.T) {
 	resp := <-cb.Callback
 	if !resp {
 		// didn't find added player
-		t.Errorf("Could not find expected player '" + name + "'")
+		t.Errorf("could not find expected player '" + name + "'")
 	}
 
 	reg.Done <- 1
@@ -124,7 +124,7 @@ func TestRemovePlayerRegistry(t *testing.T) {
 
 	resp := <-cb.Callback
 	if resp {
-		t.Errorf("Found removed player still in registry")
+		t.Errorf("found removed player still in registry")
 	}
 
 	reg.Done <- 1
@@ -147,7 +147,7 @@ func TestRemoveNonexistentPlayer(t *testing.T) {
 
 	resp := <-cb.Callback
 	if resp {
-		t.Errorf("Found removed player still in registry")
+		t.Errorf("found removed player still in registry")
 	}
 
 	reg.Done <- 1

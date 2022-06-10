@@ -86,9 +86,6 @@ func listenLogin(conn net.Conn) (string, string) {
 
 		return user, pass
 	}
-
-	// unreachable
-	return "", ""
 }
 
 func userOffline(user string) bool {
@@ -98,14 +95,14 @@ func userOffline(user string) bool {
 
 func loadProfile(user string) (*userProfile, error) {
 	// FIXME: implement
-	return &userProfile{}, errors.New("Profile loading not implemented")
+	return &userProfile{}, errors.New("profile loading not implemented")
 }
 
 func checkUser(user string) (*userProfile, error) {
 	// check user exists in DB, user is not currently logged in, and not timed out
 	offline := userOffline(user)
 	if !offline {
-		return &userProfile{}, errors.New("User '" + user + "' already logged in")
+		return &userProfile{}, errors.New("user '" + user + "' already logged in")
 	}
 
 	profile, err := loadProfile(user)
@@ -114,7 +111,7 @@ func checkUser(user string) (*userProfile, error) {
 	}
 
 	if time.Now().Before(profile.Timeout) {
-		return &userProfile{}, errors.New("User '" + user + "' has login timeout")
+		return &userProfile{}, errors.New("user '" + user + "' has login timeout")
 	}
 
 	return profile, nil

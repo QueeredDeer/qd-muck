@@ -26,7 +26,7 @@ func TestParseConnTableDriven(t *testing.T) {
 		t.Run(params.name, func(t *testing.T) {
 			user, pass, ok := parseConnect(params.input)
 			if !(user == params.user && pass == params.pass && ok == params.status) {
-				t.Errorf("Got (%s, %s, %v), wanted (%s, %s, %v)", user, pass, ok,
+				t.Errorf("got (%s, %s, %v), wanted (%s, %s, %v)", user, pass, ok,
 					params.user, params.pass, params.status)
 			}
 		})
