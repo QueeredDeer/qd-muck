@@ -50,7 +50,8 @@ type userProfile struct {
 func (profile *userProfile) clearStrikes() {
 	// FIXME: write these to db instead
 	profile.LoginStrikes = 0
-	profile.Timeout = time.Unix(0, 0)
+	// must use UTC here because mongodb doesn't understand timezones via structs
+	profile.Timeout = time.Unix(0, 0).UTC()
 }
 
 func parseConnect(line string) (string, string, bool) {
