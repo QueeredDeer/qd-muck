@@ -32,6 +32,13 @@ func ConfigureLogging(f *os.File) {
 	logrus.SetOutput(f)
 }
 
+func ValidateEnvironment() {
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		logrus.Fatal("MONGO_URI must be set in the environment")
+	}
+}
+
 func main() {
 	configFilePtr := flag.String("conf", "config.toml",
 		"Server configuration file (TOML)")
@@ -41,7 +48,7 @@ func main() {
 	configSettings := configparser.ReadConfig(*configFilePtr)
 
 	logFile := configSettings.Logging.LogFile
-	file, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	file, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		logrus.Fatal("Could not open log file '" + logFile + "'")
 	}
