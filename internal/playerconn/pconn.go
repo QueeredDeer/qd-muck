@@ -19,18 +19,26 @@
 
 package playerconn
 
+// FIXME: consider using contexts to handle auto-closing of goroutines (see std lib)
+
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/QueeredDeer/qd-muck/internal/configparser"
+	"github.com/QueeredDeer/qd-muck/internal/playerreg"
 )
 
 const invalidUser string = "Invalid login attempt"
@@ -41,17 +49,44 @@ var uindex int = connParser.SubexpIndex("user")
 var pindex int = connParser.SubexpIndex("password")
 
 type userProfile struct {
-	Name         string
-	PasswordHash []byte
-	LoginStrikes int
-	Timeout      time.Time
+	Name         string    `bson:"name"`
+	PasswordHash []byte    `bson:"password_hash"`
+	LoginStrikes int       `bson:"login_strikes"`
+	Timeout      time.Time `bson:"timeout"`
 }
 
+// FIXME: this module should probably maintain state, e.g. login settings and MongoDB connections
+
 func (profile *userProfile) clearStrikes() {
-	// FIXME: write these to db instead
+	// FIXME: remove magic strings
 	profile.LoginStrikes = 0
 	// must use UTC here because mongodb doesn't understand timezones via structs
 	profile.Timeout = time.Unix(0, 0).UTC()
+
+	uri := os.Getenv("MONGO_URI")
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		logrus.Error("failed to create mongodb client")
+		return
+	}
+
+	err = client.Connect(context.TODO())
+	if err != nil {
+		logrus.Error("failed to connect to mongodb")
+		return
+	}
+
+	defer client.Disconnect(context.TODO())
+
+	// TODO: need to test this
+	userCollection := client.Database("userprofiles").Collection("players")
+	filter := bson.D{{Key: "name", Value: profile.Name}}
+	update := bson.D{{Key: "$set", Value: bson.D{{Key: "login_strikes", Value: profile.LoginStrikes}, {Key: "timeout", Value: profile.Timeout}}}}
+	_, uerr := userCollection.UpdateOne(context.TODO(), filter, update)
+	if uerr != nil {
+		logrus.Error("failed to update profile for user '" + profile.Name + "'")
+		return
+	}
 }
 
 func parseConnect(line string) (string, string, bool) {
@@ -89,21 +124,57 @@ func listenLogin(conn net.Conn) (string, string) {
 	}
 }
 
-func userOffline(user string) bool {
-	// FIXME: implement
-	return false
+func userOffline(user string, preg *playerreg.ActivePlayerRegistry) bool {
+	rchan := make(chan bool)
+	prcallback := playerreg.RegistryCallback{
+		PlayerName: user,
+		Callback:   rchan,
+	}
+
+	preg.QueryPlayer <- &prcallback
+
+	status := <-prcallback.Callback
+	return status
 }
 
 func loadProfile(user string) (*userProfile, error) {
-	// FIXME: implement
-	return &userProfile{}, errors.New("profile loading not implemented")
+	// FIXME: remove magic strings
+	uri := os.Getenv("MONGO_URI")
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		// TODO: find better way to handle system errors, instead of penalizing logins
+		return &userProfile{}, errors.New("failed to create mongodb client")
+	}
+
+	err = client.Connect(context.TODO())
+	if err != nil {
+		// TODO: find better way to handle system errors, instead of penalizing logins
+		return &userProfile{}, errors.New("failed to connect to mongodb")
+	}
+
+	defer client.Disconnect(context.TODO())
+
+	userCollection := client.Database("userprofiles").Collection("players")
+
+	var lookup userProfile
+	lerr := userCollection.FindOne(context.TODO(), bson.D{{Key: "name", Value: user}}).Decode(&lookup)
+	if lerr != nil {
+		if lerr == mongo.ErrNoDocuments {
+			// here we should fail on bad username
+			return &userProfile{}, errors.New("user '" + user + "' does not exist")
+		}
+		// TODO: find better way to handle system errors, instead of penalizing logins
+		return &userProfile{}, lerr
+	}
+
+	return &lookup, nil
 }
 
-func checkUser(user string) (*userProfile, error) {
+func checkUser(user string, preg *playerreg.ActivePlayerRegistry) (*userProfile, error) {
 	// check user exists in DB, user is not currently logged in, and not timed out
-	offline := userOffline(user)
+	offline := userOffline(user, preg)
 	if !offline {
-		return &userProfile{}, errors.New("user '" + user + "' already logged in")
+		return &userProfile{}, errors.New("user '" + user + "' is currently logged in")
 	}
 
 	profile, err := loadProfile(user)
@@ -124,9 +195,14 @@ func checkPassword(uprofile *userProfile, password string) error {
 
 func timeoutUsers(strikes *map[string]int, lcount int) {
 	// FIXME: implement
+
+	// iterate over map, loading profile data and incrementing strike count
+	// if total count is > timeout threshold, update timeout clock
+	// save all changes to DB
+
 }
 
-func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings) (string, bool) {
+func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings, preg *playerreg.ActivePlayerRegistry) (string, bool) {
 	user := ""
 	attempts := 0
 	passwordStrikes := make(map[string]int)
@@ -134,7 +210,7 @@ func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings) (string
 	for attempts < lsettings.LoginAttempts {
 		user, password := listenLogin(conn)
 
-		uprofile, uerr := checkUser(user)
+		uprofile, uerr := checkUser(user, preg)
 		if uerr != nil {
 			attempts++
 			conn.Write([]byte(invalidUser))
@@ -176,7 +252,7 @@ func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings) (string
 
 func loadPlayer(player string) error {
 
-	return nil
+	return errors.New("loadPlayer not implemented")
 }
 
 func pipeOutput(player string, conn net.Conn) {
@@ -187,10 +263,10 @@ func listenInput(player string, conn net.Conn) {
 
 }
 
-func Launch(conn net.Conn, lsettings *configparser.LoginSettings) {
+func Launch(conn net.Conn, lsettings *configparser.LoginSettings, preg *playerreg.ActivePlayerRegistry) {
 	defer conn.Close()
 
-	player, ok := validateLogin(conn, lsettings)
+	player, ok := validateLogin(conn, lsettings, preg)
 	if !ok {
 		conn.Write([]byte("Closing connection..."))
 		return
@@ -199,6 +275,12 @@ func Launch(conn net.Conn, lsettings *configparser.LoginSettings) {
 	err := loadPlayer(player)
 	if err != nil {
 		conn.Write([]byte(err.Error()))
+		logrus.WithFields(logrus.Fields{
+			"ip":     conn.RemoteAddr().String(),
+			"player": player,
+			"error":  err.Error(),
+		}).Error("failed to load player data")
+		return
 	}
 
 	go pipeOutput(player, conn)
