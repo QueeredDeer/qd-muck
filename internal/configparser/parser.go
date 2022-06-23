@@ -77,18 +77,21 @@ func (l *LogSettings) setDefaults() {
 type LoginSettings struct {
 	LoginAttempts int `toml:"login_attempts"`
 	LockoutCount  int `toml:"lockout_count"`
+	DbTimeout     int `toml:"database_timeout"`
 }
 
 func (l *LoginSettings) Log() {
 	logrus.WithFields(logrus.Fields{
-		"login_attempts": l.LoginAttempts,
-		"lockout_count":  l.LockoutCount,
+		"login_attempts":   l.LoginAttempts,
+		"lockout_count":    l.LockoutCount,
+		"database_timeout": l.DbTimeout,
 	}).Info("Login settings")
 }
 
 func (l *LoginSettings) setDefaults() {
 	l.LoginAttempts = 5
 	l.LockoutCount = 5
+	l.DbTimeout = 10
 }
 
 func ReadConfig(conf string) TomlConfig {

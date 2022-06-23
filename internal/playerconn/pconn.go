@@ -55,34 +55,58 @@ type userProfile struct {
 	Timeout      time.Time `bson:"timeout"`
 }
 
+type PlayerConn struct {
+	Conn           net.Conn
+	LoginSettings  *configparser.LoginSettings
+	PlayerRegistry *playerreg.ActivePlayerRegistry
+	DbClient       *mongo.Client
+}
+
+func New(conn net.Conn, lsettings *configparser.LoginSettings, preg *playerreg.ActivePlayerRegistry) (*PlayerConn, error) {
+	p := PlayerConn{
+		Conn:           conn,
+		LoginSettings:  lsettings,
+		PlayerRegistry: preg,
+	}
+
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		return &PlayerConn{}, errors.New("must set MONGO_URI in environment")
+	}
+
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		return &PlayerConn{}, errors.New("failed to create mongodb client")
+	}
+
+	p.DbClient = client
+
+	return &p, nil
+}
+
 // FIXME: this module should probably maintain state, e.g. login settings and MongoDB connections
 
-func (profile *userProfile) clearStrikes() {
+func (p *PlayerConn) clearStrikes(profile *userProfile) {
 	// FIXME: remove magic strings
 	profile.LoginStrikes = 0
 	// must use UTC here because mongodb doesn't understand timezones via structs
 	profile.Timeout = time.Unix(0, 0).UTC()
 
-	uri := os.Getenv("MONGO_URI")
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
-	if err != nil {
-		logrus.Error("failed to create mongodb client")
-		return
-	}
-
-	err = client.Connect(context.TODO())
+	timeout := time.Duration(p.LoginSettings.DbTimeout) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := p.DbClient.Connect(ctx)
 	if err != nil {
 		logrus.Error("failed to connect to mongodb")
 		return
 	}
-
-	defer client.Disconnect(context.TODO())
+	defer p.DbClient.Disconnect(ctx)
 
 	// TODO: need to test this
-	userCollection := client.Database("userprofiles").Collection("players")
+	userCollection := p.DbClient.Database("userprofiles").Collection("players")
 	filter := bson.D{{Key: "name", Value: profile.Name}}
 	update := bson.D{{Key: "$set", Value: bson.D{{Key: "login_strikes", Value: profile.LoginStrikes}, {Key: "timeout", Value: profile.Timeout}}}}
-	_, uerr := userCollection.UpdateOne(context.TODO(), filter, update)
+	_, uerr := userCollection.UpdateOne(ctx, filter, update)
 	if uerr != nil {
 		logrus.Error("failed to update profile for user '" + profile.Name + "'")
 		return
@@ -124,40 +148,35 @@ func listenLogin(conn net.Conn) (string, string) {
 	}
 }
 
-func userOffline(user string, preg *playerreg.ActivePlayerRegistry) bool {
+func (p *PlayerConn) userOffline(user string) bool {
 	rchan := make(chan bool)
 	prcallback := playerreg.RegistryCallback{
 		PlayerName: user,
 		Callback:   rchan,
 	}
 
-	preg.QueryPlayer <- &prcallback
+	p.PlayerRegistry.QueryPlayer <- &prcallback
 
 	status := <-prcallback.Callback
 	return status
 }
 
-func loadProfile(user string) (*userProfile, error) {
-	// FIXME: remove magic strings
-	uri := os.Getenv("MONGO_URI")
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+func (p *PlayerConn) loadProfile(user string) (*userProfile, error) {
+
+	timeout := time.Duration(p.LoginSettings.DbTimeout) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := p.DbClient.Connect(ctx)
 	if err != nil {
 		// TODO: find better way to handle system errors, instead of penalizing logins
-		return &userProfile{}, errors.New("failed to create mongodb client")
+		return &userProfile{}, errors.New("failed to connect to database")
 	}
+	defer p.DbClient.Disconnect(ctx)
 
-	err = client.Connect(context.TODO())
-	if err != nil {
-		// TODO: find better way to handle system errors, instead of penalizing logins
-		return &userProfile{}, errors.New("failed to connect to mongodb")
-	}
-
-	defer client.Disconnect(context.TODO())
-
-	userCollection := client.Database("userprofiles").Collection("players")
+	userCollection := p.DbClient.Database("userprofiles").Collection("players")
 
 	var lookup userProfile
-	lerr := userCollection.FindOne(context.TODO(), bson.D{{Key: "name", Value: user}}).Decode(&lookup)
+	lerr := userCollection.FindOne(ctx, bson.D{{Key: "name", Value: user}}).Decode(&lookup)
 	if lerr != nil {
 		if lerr == mongo.ErrNoDocuments {
 			// here we should fail on bad username
@@ -170,14 +189,14 @@ func loadProfile(user string) (*userProfile, error) {
 	return &lookup, nil
 }
 
-func checkUser(user string, preg *playerreg.ActivePlayerRegistry) (*userProfile, error) {
+func (p *PlayerConn) checkUser(user string) (*userProfile, error) {
 	// check user exists in DB, user is not currently logged in, and not timed out
-	offline := userOffline(user, preg)
+	offline := p.userOffline(user)
 	if !offline {
 		return &userProfile{}, errors.New("user '" + user + "' is currently logged in")
 	}
 
-	profile, err := loadProfile(user)
+	profile, err := p.loadProfile(user)
 	if err != nil {
 		return profile, err
 	}
@@ -193,7 +212,8 @@ func checkPassword(uprofile *userProfile, password string) error {
 	return bcrypt.CompareHashAndPassword(uprofile.PasswordHash, []byte(password))
 }
 
-func timeoutUsers(strikes *map[string]int, lcount int) {
+func (p *PlayerConn) timeoutUsers(strikes *map[string]int) {
+	// p.LoginSettings.LockoutCount
 	// FIXME: implement
 
 	// iterate over map, loading profile data and incrementing strike count
@@ -202,20 +222,20 @@ func timeoutUsers(strikes *map[string]int, lcount int) {
 
 }
 
-func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings, preg *playerreg.ActivePlayerRegistry) (string, bool) {
+func (p *PlayerConn) validateLogin() (string, bool) {
 	user := ""
 	attempts := 0
 	passwordStrikes := make(map[string]int)
 
-	for attempts < lsettings.LoginAttempts {
-		user, password := listenLogin(conn)
+	for attempts < p.LoginSettings.LoginAttempts {
+		user, password := listenLogin(p.Conn)
 
-		uprofile, uerr := checkUser(user, preg)
+		uprofile, uerr := p.checkUser(user)
 		if uerr != nil {
 			attempts++
-			conn.Write([]byte(invalidUser))
+			p.Conn.Write([]byte(invalidUser))
 			logrus.WithFields(logrus.Fields{
-				"ip":     conn.RemoteAddr().String(),
+				"ip":     p.Conn.RemoteAddr().String(),
 				"player": user,
 				"error":  uerr.Error(),
 			}).Warn("Invalid username in login attempt")
@@ -226,9 +246,9 @@ func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings, preg *p
 		perr := checkPassword(uprofile, password)
 		if perr == nil {
 			// password validated, safe to login
-			uprofile.clearStrikes()
+			p.clearStrikes(uprofile)
 			logrus.WithFields(logrus.Fields{
-				"ip":     conn.RemoteAddr().String(),
+				"ip":     p.Conn.RemoteAddr().String(),
 				"player": user,
 			}).Info("Successful login")
 			return user, true
@@ -238,15 +258,15 @@ func validateLogin(conn net.Conn, lsettings *configparser.LoginSettings, preg *p
 		attempts++
 		strikes := passwordStrikes[uprofile.Name]
 		passwordStrikes[uprofile.Name] = strikes + 1
-		conn.Write([]byte(invalidPass))
+		p.Conn.Write([]byte(invalidPass))
 		logrus.WithFields(logrus.Fields{
-			"ip":     conn.RemoteAddr().String(),
+			"ip":     p.Conn.RemoteAddr().String(),
 			"player": user,
 			"error":  perr.Error(),
 		}).Warn("Invalid password in login attempt")
 	}
 
-	timeoutUsers(&passwordStrikes, lsettings.LockoutCount)
+	p.timeoutUsers(&passwordStrikes)
 	return user, false
 }
 
@@ -255,35 +275,35 @@ func loadPlayer(player string) error {
 	return errors.New("loadPlayer not implemented")
 }
 
-func pipeOutput(player string, conn net.Conn) {
+func (p *PlayerConn) pipeOutput() {
 
 }
 
-func listenInput(player string, conn net.Conn) {
+func (p *PlayerConn) listenInput() {
 
 }
 
-func Launch(conn net.Conn, lsettings *configparser.LoginSettings, preg *playerreg.ActivePlayerRegistry) {
-	defer conn.Close()
+func (p *PlayerConn) Launch() {
+	defer p.Conn.Close()
 
-	player, ok := validateLogin(conn, lsettings, preg)
+	player, ok := p.validateLogin()
 	if !ok {
-		conn.Write([]byte("Closing connection..."))
+		p.Conn.Write([]byte("Closing connection..."))
 		return
 	}
 
 	err := loadPlayer(player)
 	if err != nil {
-		conn.Write([]byte(err.Error()))
+		p.Conn.Write([]byte(err.Error()))
 		logrus.WithFields(logrus.Fields{
-			"ip":     conn.RemoteAddr().String(),
+			"ip":     p.Conn.RemoteAddr().String(),
 			"player": player,
 			"error":  err.Error(),
 		}).Error("failed to load player data")
 		return
 	}
 
-	go pipeOutput(player, conn)
+	go p.pipeOutput()
 
-	listenInput(player, conn)
+	p.listenInput()
 }
