@@ -32,8 +32,8 @@ func TestAddPlayerRegistry(t *testing.T) {
 
 	name := "Charlie"
 
-	tplayer := player.Player{Name: name}
-	reg.AddPlayer <- &tplayer
+	tplayer := player.New(name, "")
+	reg.AddPlayer <- tplayer
 
 	cb := RegistryCallback{
 		PlayerName: name,
@@ -57,8 +57,8 @@ func TestQueryNameVariety(t *testing.T) {
 
 	name := "aB23 _#$-vL;="
 
-	tplayer := player.Player{Name: name}
-	reg.AddPlayer <- &tplayer
+	tplayer := player.New(name, "")
+	reg.AddPlayer <- tplayer
 
 	cb := RegistryCallback{
 		PlayerName: name,
@@ -82,11 +82,11 @@ func TestAddExistingPlayer(t *testing.T) {
 
 	name := "Charlie"
 
-	tplayer := player.Player{Name: name}
-	reg.AddPlayer <- &tplayer
+	tplayer := player.New(name, "")
+	reg.AddPlayer <- tplayer
 
 	// duplicate addition
-	reg.AddPlayer <- &tplayer
+	reg.AddPlayer <- tplayer
 
 	cb := RegistryCallback{
 		PlayerName: name,
@@ -110,8 +110,8 @@ func TestRemovePlayerRegistry(t *testing.T) {
 
 	name := "Charlie"
 
-	tplayer := player.Player{Name: name}
-	reg.AddPlayer <- &tplayer
+	tplayer := player.New(name, "")
+	reg.AddPlayer <- tplayer
 
 	reg.RemovePlayer <- tplayer.Name
 
